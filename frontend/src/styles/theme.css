@@ -1,0 +1,137 @@
+/*
+ * SeatLock design tokens.
+ *
+ * This is the only file in the project that contains a raw hex colour. Every
+ * other consumer — Tailwind utilities, inline SVG fills, keyframes — reads
+ * these variables. Two reasons that matters here:
+ *
+ *  1. The seat map draws seats with inline SVG and inline styles (a seat's
+ *     outline colour comes from the API's tier `colour` field at runtime), so a
+ *     Tailwind-only palette would not have been reachable from that code path.
+ *  2. It makes the palette auditable. Someone reviewing this project can read
+ *     one 30-line block and know the entire colour system.
+ *
+ * The scale is named, not numbered by lightness alone: `ink` is the dark
+ * structural family, `fog` is text, `flare` is the single hot accent, and
+ * `mint`/`amber` are reserved strictly for seat/booking status so they never
+ * get spent on decoration.
+ */
+
+:root {
+  /* --- Structure: near-black greys, ~6% lightness steps apart. --- */
+  --ink-950: #08080b; /* page background */
+  --ink-900: #0e0e13; /* app chrome / header */
+  --ink-850: #14141b; /* raised surface (cards) */
+  --ink-800: #1c1c25; /* input / hover surface */
+  --ink-700: #2a2a36; /* borders, dividers */
+  --ink-600: #3d3d4c; /* disabled fill, booked seats */
+
+  /* --- Text. Three steps is enough; more invites inconsistency. --- */
+  --fog-400: #8a8a9e; /* secondary / metadata */
+  --fog-200: #c9c9d6; /* body */
+  --fog-050: #f2f2f7; /* primary / headings */
+
+  /* --- Accent. Exactly one hot colour, used for: primary buttons, prices,
+         the current selection, and live/urgent indicators. Nothing else. --- */
+  --flare-600: #c81e3c; /* pressed */
+  --flare-500: #e62b4b; /* base */
+  --flare-400: #ff4a67; /* hover */
+
+  /* --- Status. Semantic only. --- */
+  --mint-500: #2fbf87; /* available / success / confirmed */
+  --amber-500: #e8a33d; /* held / warning / pending */
+
+  /* --- Translucent scrims, for the few chips that sit on top of poster
+         artwork and need the artwork to read through them slightly.
+
+         These are declared as their own tokens rather than written as Tailwind
+         opacity modifiers (`bg-ink-950/90`), because Tailwind CANNOT apply an
+         alpha modifier to a colour defined as a bare `var()`: it needs the
+         channel values, not a finished colour string, so it silently emits no
+         CSS rule at all and the element ends up fully transparent. That failure
+         is invisible in review — the class is there, it just does nothing — so
+         the translucent values are spelled out here instead. --- */
+  --scrim-strong: rgba(8, 8, 11, 0.9); /* --ink-950 at 90% */
+  --scrim-soft: rgba(8, 8, 11, 0.85); /* --ink-950 at 85% */
+
+  /* --- Seat tiers. These mirror the `colour` field the API sends on each tier,
+         and are the fallback when a tier's colour is missing. --- */
+  --tier-recliner: #f5c451;
+  --tier-prime: #5ec8a0;
+  --tier-classic: #7da2f0;
+}
+
+/*
+ * Global base.
+ *
+ * `tnum` forces tabular (monospaced-width) figures. This is not a nicety: the
+ * checkout countdown re-renders every second, and with proportional digits a
+ * "1" is narrower than an "8", so the timer physically jitters left and right
+ * as it counts down. `tnum` also keeps prices in the bookings table aligned on
+ * their decimal position without a monospace font. `cv05` is Inter's
+ * alternate lowercase l with a tail, which stops `l` reading as `1` or `I` in
+ * seat labels and booking references.
+ */
+html {
+  color-scheme: dark;
+  background-color: var(--ink-950);
+}
+
+body {
+  margin: 0;
+  background-color: var(--ink-950);
+  color: var(--fog-200);
+  font-family: Inter, system-ui, -apple-system, sans-serif;
+  font-size: 13px;
+  line-height: 18px;
+  font-feature-settings: 'tnum' 1, 'cv05' 1;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/*
+ * Focus. A dark commercial UI hides focus rings very easily against near-black
+ * surfaces, so we use the accent colour plus an offset ring in the page colour
+ * to punch the outline out of whatever sits behind it. `:focus-visible` rather
+ * than `:focus` so mouse users never see it but keyboard users always do.
+ */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--flare-400);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Scrollbars. The horizontal rails on Browse are scrolled constantly; a stock
+   light scrollbar in the middle of a dark page is jarring. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--ink-700) transparent;
+}
+*::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--ink-700);
+  border-radius: 999px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--ink-600);
+}
+
+/* Respect the OS "reduce motion" setting. The held-seat pulse and the urgent
+   countdown pulse are the only continuous animations in the app, and both
+   communicate state that is also carried by colour and text — so switching
+   them off loses nothing. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

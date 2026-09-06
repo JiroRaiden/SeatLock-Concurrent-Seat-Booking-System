@@ -1,0 +1,42 @@
+# =============================================================================
+# dev profile - what you get with `docker compose up` + `mvn spring-boot:run`.
+#
+# These defaults exist ONLY here. The base application.yml has no fallbacks, so
+# if this profile is not active the app demands real environment variables.
+# The dev JWT secret below is a throwaway value that is committed on purpose:
+# it is worthless because it only ever signs tokens for a local database full
+# of fake seats. Production reads JWT_SECRET from AWS Secrets Manager.
+# =============================================================================
+
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/seatlock
+    username: seatlock
+    password: seatlock_dev_password
+  data:
+    redis:
+      host: localhost
+      port: 6379
+  jpa:
+    properties:
+      hibernate:
+        format_sql: true
+  flyway:
+    # In dev only, also load demo data (venues, an event, a seat map) so the
+    # frontend has something to render the moment you start it.
+    locations: classpath:db/migration,classpath:db/demo
+
+seatlock:
+  security:
+    jwt:
+      secret: ZGV2LW9ubHktc2VjcmV0LW5vdC1mb3ItcHJvZHVjdGlvbi11c2UtMzJiKw==
+    cors:
+      allowed-origins: http://localhost:5173,http://127.0.0.1:5173
+
+logging:
+  level:
+    com.seatlock: DEBUG
+    # Show the SQL Hibernate actually sends, and the bound parameters. Priceless
+    # when you are learning what @Version does to an UPDATE statement.
+    org.hibernate.SQL: DEBUG
+    org.hibernate.orm.jdbc.bind: TRACE

@@ -1,0 +1,73 @@
+@import './theme.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * A small set of component classes. The rule for what earns a place here: it is
+ * repeated on at least three screens AND the utility soup would otherwise be
+ * long enough to obscure the markup. Everything else stays inline as utilities,
+ * because indirection you have to chase is worse than a long class list.
+ */
+@layer components {
+  /* The 11px uppercase micro-label used above every section and field. This one
+     treatment, applied consistently, is most of what makes the UI read as a
+     dense commercial product rather than a marketing page. */
+  .label-micro {
+    @apply text-xs uppercase tracking-label text-fog-400 font-medium;
+  }
+
+  /* Display type. Bebas Neue has no lowercase and very tight sidebearings, so it
+     needs positive letter-spacing at small sizes and none at large. */
+  .display {
+    @apply font-display uppercase leading-none;
+    letter-spacing: 0.01em;
+  }
+
+  /* Surfaces are separated by a 1px border, never by a shadow or a blur. On a
+     near-black page a hairline border is legible and cheap; a drop shadow is
+     invisible and a backdrop blur is the "AI made this" tell. */
+  .surface {
+    @apply bg-ink-850 border border-ink-700 rounded-lg;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded px-4 h-9
+           text-sm font-semibold transition-colors duration-150
+           disabled:cursor-not-allowed select-none;
+  }
+  .btn-primary {
+    @apply btn bg-flare-500 text-white hover:bg-flare-400 active:bg-flare-600
+           disabled:bg-ink-600 disabled:text-fog-400;
+  }
+  .btn-ghost {
+    @apply btn bg-transparent text-fog-200 border border-ink-700
+           hover:bg-ink-800 hover:text-fog-50 disabled:text-fog-400;
+  }
+
+  .field {
+    @apply w-full h-9 px-3 rounded bg-ink-800 border border-ink-700 text-sm
+           text-fog-50 placeholder:text-fog-400
+           focus:border-flare-500 focus:outline-none
+           transition-colors duration-150;
+  }
+
+  /* Status pills. 999px radius is allowed here and only here (plus badges) —
+     the brief's rule is that pill shapes belong to pills, not to cards. */
+  .pill {
+    @apply inline-flex items-center gap-1 rounded-full px-2 h-5 text-2xs
+           uppercase tracking-label font-semibold whitespace-nowrap;
+  }
+
+  /* A rail is a horizontal snap-scrolling strip, the BookMyShow row pattern.
+     `scrollbar-width: none` hides the bar but keeps the element scrollable, so
+     touch/trackpad still work and the arrow buttons drive it on desktop. */
+  .rail {
+    @apply flex gap-3 overflow-x-auto snap-x snap-mandatory scroll-smooth pb-1;
+    scrollbar-width: none;
+  }
+  .rail::-webkit-scrollbar {
+    display: none;
+  }
+}

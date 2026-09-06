@@ -1,0 +1,108 @@
+# =============================================================================
+# Local development infrastructure.
+#
+#   docker compose up -d
+#
+# This starts ONLY the things the app depends on (Postgres + Redis), not the app
+# itself. Running the Spring Boot app from your IDE against these containers is
+# the fastest inner loop: you get hot restart, breakpoints, and a real database.
+#
+# `docker compose --profile full up` additionally builds and runs the API and
+# the frontend, which is how you check the production-shaped image works.
+# =============================================================================
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: seatlock-postgres
+    environment:
+      POSTGRES_DB: seatlock
+      POSTGRES_USER: seatlock
+      POSTGRES_PASSWORD: seatlock_dev_password
+      # Deterministic collation so ORDER BY behaves identically on every machine.
+      POSTGRES_INITDB_ARGS: "--locale=C --encoding=UTF8"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      # Compose will not report the service "healthy" until Postgres actually
+      # accepts connections. Without this, the app races the database on startup.
+      test: ["CMD-SHELL", "pg_isready -U seatlock -d seatlock"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    command:
+      # Log every statement slower than 200ms. Useful when you want evidence that
+      # the booking transaction really is short.
+      - "postgres"
+      - "-c"
+      - "log_min_duration_statement=200"
+
+  redis:
+    image: redis:7-alpine
+    container_name: seatlock-redis
+    ports:
+      - "6379:6379"
+    # appendonly yes = Redis fsyncs an append-only log, so a container restart
+    # does not vaporise every live seat hold. Holds are short-lived, but losing
+    # them all at once during a busy drop would release thousands of seats
+    # simultaneously. See docs/03-concurrency.md, "What if Redis dies?".
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ---------------------------------------------------------------------------
+  # Optional: the full stack, production-shaped. Enable with --profile full
+  # ---------------------------------------------------------------------------
+  api:
+    profiles: ["full"]
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: seatlock-api
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      DB_URL: jdbc:postgresql://postgres:5432/seatlock
+      DB_USERNAME: seatlock
+      DB_PASSWORD: seatlock_dev_password
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JWT_SECRET: ZGV2LW9ubHktc2VjcmV0LW5vdC1mb3ItcHJvZHVjdGlvbi11c2UtMzJiKw==
+      CORS_ALLOWED_ORIGINS: http://localhost:5173,http://localhost:8081
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health/readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  web:
+    profiles: ["full"]
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: http://localhost:8080
+    container_name: seatlock-web
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "8081:80"
+
+volumes:
+  postgres_data:
+  redis_data:

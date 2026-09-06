@@ -1,0 +1,16 @@
+node_modules
+dist
+dist-ssr
+*.local
+.env
+.env.local
+.env.*.local
+
+# Editor / OS noise
+.DS_Store
+.idea
+.vscode/*
+!.vscode/extensions.json
+
+# tsc -b incremental build info
+*.tsbuildinfo

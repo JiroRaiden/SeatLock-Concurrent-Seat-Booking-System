@@ -1,0 +1,155 @@
+# =============================================================================
+# SeatLock - base configuration
+#
+# Rule we follow everywhere in this file: NO SECRET HAS A DEFAULT VALUE.
+# Notice the syntax ${DB_PASSWORD} with no ":-something" fallback. If the
+# environment variable is missing, the application refuses to start. That is
+# deliberate - a service that silently boots with the password "postgres"
+# because someone forgot an env var is how test credentials reach production.
+# Non-secret values (pool sizes, TTLs) do get sensible defaults.
+# =============================================================================
+
+spring:
+  application:
+    name: seatlock
+
+  # Profiles are activated by SPRING_PROFILES_ACTIVE. "dev" is never the default
+  # so that a production container cannot accidentally start in dev mode.
+  profiles:
+    default: dev
+
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    hikari:
+      # The connection pool is the real concurrency limit of this service.
+      # Every booking confirmation needs a connection for a few milliseconds.
+      # 20 connections x ~5ms per confirm is theoretically ~4000 confirms/sec,
+      # far more than we need; the pool is sized to protect Postgres, not us.
+      maximum-pool-size: ${DB_POOL_SIZE:20}
+      minimum-idle: 5
+      # Fail fast rather than queueing requests forever when the DB is sick.
+      connection-timeout: 3000
+      # Postgres closes idle connections; recycle before it does.
+      max-lifetime: 1200000
+      pool-name: seatlock-pool
+
+  jpa:
+    hibernate:
+      # NEVER "update" or "create". Flyway owns the schema, full stop.
+      # ddl-auto=validate makes Hibernate cross-check its entity mappings against
+      # the real tables at boot and fail loudly if they drifted apart.
+      ddl-auto: validate
+    open-in-view: false   # see docs/01-data-model.md for why this must be false
+    properties:
+      hibernate:
+        jdbc:
+          # Batch inserts. Booking 6 seats becomes 1 round trip, not 6.
+          batch_size: 30
+        order_inserts: true
+        order_updates: true
+        # Surfacing the generated SQL in logs is a dev-only concern (see dev profile).
+        format_sql: false
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    # Refuse to run if the DB already has objects Flyway did not create, unless
+    # explicitly baselined. Protects against pointing at the wrong database.
+    baseline-on-migrate: false
+    validate-on-migrate: true
+
+  data:
+    redis:
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT:6379}
+      # Empty string means "no password" for local Redis. In production this must
+      # be set; the prod profile enforces it.
+      password: ${REDIS_PASSWORD:}
+      timeout: 2000ms
+      lettuce:
+        pool:
+          max-active: ${REDIS_POOL_SIZE:16}
+          max-idle: 8
+          min-idle: 2
+
+  jackson:
+    # Do not serialise nulls - keeps API payloads small and unambiguous.
+    default-property-inclusion: non_null
+    deserialization:
+      # Reject unknown JSON fields instead of silently ignoring them. A client
+      # sending {"seatIds": [...], "isAdmin": true} should get a 400, not a
+      # quietly-dropped field that someone later wires up by accident.
+      fail-on-unknown-properties: true
+
+server:
+  port: ${SERVER_PORT:8080}
+  error:
+    # Never leak stack traces or internal messages to HTTP clients.
+    include-message: never
+    include-stacktrace: never
+    include-binding-errors: never
+  # Behind an ALB/nginx, trust X-Forwarded-* so rate limiting sees real client IPs.
+  forward-headers-strategy: framework
+  tomcat:
+    # Cap request line + headers. Cheap defence against header-stuffing attacks.
+    max-http-form-post-size: 256KB
+
+# =============================================================================
+# Application-specific settings. These map to @ConfigurationProperties classes,
+# so they are type-checked and validated at startup rather than being read as
+# loose strings scattered through the code.
+# =============================================================================
+seatlock:
+  security:
+    jwt:
+      # Base64-encoded 256-bit key. No default: see the rule at the top.
+      secret: ${JWT_SECRET}
+      issuer: seatlock
+      access-token-ttl: ${JWT_ACCESS_TTL:15m}
+      refresh-token-ttl: ${JWT_REFRESH_TTL:7d}
+    cors:
+      # Explicit origin list. Never "*" - see docs/02-security.md.
+      allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
+    rate-limit:
+      # Auth endpoints are the ones worth brute-forcing, so they get a tight budget.
+      auth-requests-per-minute: ${RATE_LIMIT_AUTH:10}
+      # Hold endpoint is the hot path during a ticket drop; generous but bounded.
+      hold-requests-per-minute: ${RATE_LIMIT_HOLD:30}
+
+  hold:
+    # How long a seat stays reserved after the user selects it. This is the single
+    # most important business number in the system:
+    #   too short -> users lose seats while entering payment details
+    #   too long  -> abandoned carts starve real buyers during a hot drop
+    # BookMyShow-style products sit around 7-10 minutes. We use 8.
+    ttl: ${HOLD_TTL:8m}
+    # A user may extend an active hold once, for this long, if they are mid-payment.
+    extension: ${HOLD_EXTENSION:3m}
+    # Hard cap on seats per booking. Blocks a scalper script from holding a
+    # whole theatre with one call, and bounds the size of our Lua script argument.
+    max-seats-per-booking: ${MAX_SEATS_PER_BOOKING:10}
+
+  reaper:
+    # How often we sweep PENDING bookings whose Redis hold has already evaporated.
+    # Redis TTL frees the *seat*; this job tidies the *database row*.
+    fixed-delay: ${REAPER_DELAY:60s}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # Only these three. Never expose /actuator/env or /actuator/heapdump -
+        # they leak configuration values and memory contents.
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: when-authorized
+      probes:
+        enabled: true
+
+logging:
+  level:
+    root: INFO
+    com.seatlock: ${LOG_LEVEL:INFO}

@@ -1,0 +1,66 @@
+# =============================================================================
+# What NOT to send to the Docker daemon.
+#
+# Everything not listed here is packed into a tarball and uploaded as the build
+# context before the first instruction runs. That has two consequences worth
+# understanding:
+#
+#   1. Speed. target/ after a local build is hundreds of megabytes of class
+#      files and a fat jar. Shipping it is pure waste - stage 1 rebuilds from
+#      source anyway - and it also busts the layer cache on every build, because
+#      the context hash changes whenever any of those files does.
+#
+#   2. Safety. Anything in the context can be COPYed, deliberately or by
+#      accident. A `.env` swept in by a broad `COPY . .` ends up as a readable
+#      layer in the published image, and deleting it in a later instruction does
+#      NOT remove it - layers are immutable and `docker history` will still show
+#      it. The only way a secret stays out of an image is by never entering the
+#      context.
+# =============================================================================
+
+# ---- Build output -----------------------------------------------------------
+target/
+*.jar
+*.war
+*.class
+
+# ---- Secrets and local configuration ----------------------------------------
+# Belt and braces with the root .gitignore: an untracked .env sitting in a
+# working copy would still be picked up by the build context.
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.jks
+**/secrets/
+
+# ---- Version control --------------------------------------------------------
+# .git is often the largest thing in the tree and contains every version of
+# every file ever committed, including anything that was committed by mistake
+# and removed later.
+.git
+.gitignore
+.gitattributes
+
+# ---- IDE and OS noise -------------------------------------------------------
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.settings/
+.classpath
+.project
+.DS_Store
+Thumbs.db
+
+# ---- Docker's own files -----------------------------------------------------
+# Copying the Dockerfile into the image it builds achieves nothing.
+Dockerfile
+.dockerignore
+
+# ---- Logs and scratch -------------------------------------------------------
+*.log
+hs_err_pid*
+replay_pid*

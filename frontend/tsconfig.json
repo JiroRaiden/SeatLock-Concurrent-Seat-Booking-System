@@ -1,0 +1,10 @@
+{
+  // A "solution style" tsconfig: it holds no files itself, it just points at the
+  // two real configs. `tsc -b` then builds both — the browser sources and the
+  // Node-side build tooling — which have genuinely different lib/module needs.
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.app.json" },
+    { "path": "./tsconfig.node.json" }
+  ]
+}

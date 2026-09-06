@@ -1,0 +1,40 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "useDefineForClassFields": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+
+    /* Vite compiles each file in isolation with esbuild, so TypeScript is only
+       ever a type-checker here — it never emits. These flags make tsc behave
+       consistently with what esbuild can actually see. */
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "jsx": "react-jsx",
+
+    /* Strictness. `strict` is the baseline the brief asked for.
+       `noUncheckedIndexedAccess` is the interesting one: it makes `arr[i]` have
+       type `T | undefined`, which forces us to handle "that row/seat might not
+       be there" instead of trusting an index. That matters in the seat map,
+       where we index into rows and columns constantly. */
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "exactOptionalPropertyTypes": false,
+
+    /* Must mirror `resolve.alias` in vite.config.ts, or the type-checker and the
+       bundler will disagree about what `@/` points at. */
+    "baseUrl": ".",
+    "paths": { "@/*": ["./src/*"] },
+
+    "types": ["vite/client"],
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo"
+  },
+  "include": ["src"]
+}

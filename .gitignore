@@ -1,0 +1,48 @@
+# ---- Secrets: the single most important section of this file ----
+# A committed .env is the most common way a student project leaks credentials.
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.jks
+**/secrets/
+
+# ---- Java / Maven ----
+target/
+!.mvn/wrapper/maven-wrapper.jar
+*.class
+*.jar
+*.war
+hs_err_pid*
+replay_pid*
+
+# ---- Node / Vite ----
+node_modules/
+dist/
+dist-ssr/
+.vite/
+*.local
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ---- IDE ----
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/*
+!.vscode/extensions.json
+.settings/
+.classpath
+.project
+
+# ---- OS ----
+.DS_Store
+Thumbs.db
+
+# ---- Build / test output ----
+*.log
+coverage/
+.jacoco/

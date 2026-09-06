@@ -1,0 +1,250 @@
+# =============================================================================
+# SeatLock CI
+#
+# Three independent jobs, run in parallel: backend, frontend, security.
+# Every one of them can fail the build. A pipeline whose failures are advisory
+# is a pipeline nobody reads.
+#
+# There is deliberately NO deploy job and NO credentials anywhere in this file.
+# A sketch of what one would look like is at the bottom, commented out.
+# =============================================================================
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Least privilege. The default token can write to the repository; none of these
+# jobs needs to, so we take that away. If a step is ever compromised - a typo'd
+# action name, a malicious transitive dependency in a build plugin - the blast
+# radius is "it could read a public repo".
+permissions:
+  contents: read
+
+# A second push to the same branch makes the first run irrelevant. Cancelling it
+# frees a runner and gets the newer answer sooner. Never applied to main, where
+# every commit's result is worth having on the record.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+
+  # ===========================================================================
+  # Backend: compile, unit tests, and the Testcontainers integration suite.
+  # ===========================================================================
+  backend:
+    name: Backend (Java 21)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          # Caches ~/.m2/repository, keyed on the hash of every pom.xml. Maven
+          # otherwise re-downloads the whole Spring Boot dependency tree on
+          # every run - a couple of minutes of network for bytes that have not
+          # changed since the last commit.
+          cache: maven
+
+      # `verify` rather than `test`, and the difference is the entire point of
+      # the Surefire/Failsafe split in pom.xml:
+      #
+      #   mvn test    -> Surefire only -> *Test classes -> no Docker, seconds
+      #   mvn verify  -> Surefire AND Failsafe -> also *IT -> Testcontainers
+      #
+      # GitHub's ubuntu runners have a working Docker daemon, so Testcontainers
+      # starts a real Postgres and a real Redis here. That matters: the partial
+      # unique index, the optimistic lock and the Lua scripts are the things
+      # this project claims to be correct about, and none of them can be
+      # exercised against a substitute.
+      #
+      # The first run pulls postgres:16-alpine and redis:7-alpine, which is why
+      # this job takes a couple of minutes even when nothing is wrong.
+      - name: Build and run the full test suite
+        run: mvn -B verify
+
+      # `if: failure()` - only when something is red, because that is the only
+      # time anyone wants them. The XML and .txt reports carry the assertion
+      # messages and stack traces that the log truncates, which is usually what
+      # you need to diagnose a failure you cannot reproduce locally.
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-and-failsafe-reports
+          path: |
+            backend/target/surefire-reports/
+            backend/target/failsafe-reports/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # ===========================================================================
+  # Frontend: types, lint, production build.
+  # ===========================================================================
+  frontend:
+    name: Frontend (Node 20)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          # Caches the npm download cache. The dependency path has to be named
+          # explicitly because the lockfile is not at the repository root.
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # `npm ci`, never `npm install`. ci installs exactly what the lockfile
+      # pins and fails outright if the lockfile and package.json disagree;
+      # install is allowed to silently resolve a newer version, which means the
+      # thing CI tested is not necessarily the thing that was committed.
+      - name: Install dependencies
+        run: npm ci
+
+      # Type checking is separated from the build because `vite build` transpiles
+      # without type checking - esbuild strips types rather than verifying them.
+      # A type error would sail straight through to a green build and surface in
+      # a browser instead.
+      - name: Type check
+        run: npm run typecheck
+
+      # --max-warnings 0 is set in the npm script, so a warning fails the job.
+      # Warnings that do not fail accumulate until nobody reads any of them.
+      - name: Lint
+        run: npm run lint
+
+      # The build itself: it catches what the two steps above cannot, such as an
+      # unresolvable import or a broken asset reference.
+      - name: Production build
+        run: npm run build
+
+  # ===========================================================================
+  # Security: known-vulnerable dependencies, on both sides of the stack.
+  # ===========================================================================
+  security:
+    name: Security scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      # Trivy rather than OWASP Dependency-Check, for one practical reason:
+      # Dependency-Check's NVD data feed now requires an API key, and a CI job
+      # that needs a secret to run is a CI job that quietly stops running on
+      # forks and on anyone else's clone. Trivy's database is public, so this
+      # works out of the box for everybody.
+      #
+      # It scans the filesystem, so it reads pom.xml AND package-lock.json in
+      # one pass and covers both halves of the project.
+      - name: Scan dependencies with Trivy
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          # HIGH and CRITICAL only. Including MEDIUM produces a wall of
+          # findings that nobody triages, and a scanner people have learned to
+          # ignore is worse than no scanner.
+          severity: HIGH,CRITICAL
+          # A vulnerability with no released fix cannot be acted on today, so
+          # failing the build over it would only teach people to skip the job.
+          ignore-unfixed: true
+          # 1 = fail the job on a finding. This is the line that makes the scan
+          # a gate rather than a report.
+          exit-code: '1'
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # A second opinion on the JavaScript side specifically, straight from the
+      # npm advisory database, which is often ahead of a general-purpose scanner
+      # for npm-only issues.
+      #
+      # The honest caveat: this can fail on a commit that changed nothing,
+      # because a new advisory was published overnight. That is a real cost, and
+      # it is accepted on purpose - the alternative is finding out from someone
+      # else. `--omit=dev` is NOT used: a compromised build-time dependency runs
+      # on this runner with access to the whole checkout.
+      - name: npm audit
+        working-directory: frontend
+        run: npm audit --audit-level=high
+
+# =============================================================================
+# Deployment — deliberately not implemented.
+#
+# Everything below is commented out. It is here to show the shape a deploy job
+# would take, not to run. Adding a real one means adding real credentials, and a
+# public portfolio repository is not where those belong: a leaked AWS key is
+# found by automated scrapers within minutes of being pushed.
+#
+# Three things the sketch is trying to say:
+#
+#   1. `needs: [backend, frontend, security]` — deploy runs only if every gate
+#      passed. A deploy job that can start while tests are still red is not a
+#      pipeline, it is a race.
+#   2. The `if:` guard — only from main, and only on a real push. Without it, a
+#      pull request from a fork could trigger a production deploy, which is a
+#      genuine and frequently exploited GitHub Actions misconfiguration.
+#   3. Credentials would come from OIDC (`permissions: id-token: write`) rather
+#      than long-lived secrets. GitHub exchanges a short-lived signed token for
+#      temporary cloud credentials, so there is no static key to leak in the
+#      first place.
+#
+# -----------------------------------------------------------------------------
+# deploy:
+#   name: Deploy to production
+#   needs: [backend, frontend, security]
+#   if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+#   runs-on: ubuntu-latest
+#   environment: production          # gives a manual approval gate + audit trail
+#   permissions:
+#     contents: read
+#     id-token: write                # OIDC, so no stored cloud credentials
+#
+#   steps:
+#     - uses: actions/checkout@v4
+#
+#     - name: Assume a deployment role via OIDC
+#       uses: aws-actions/configure-aws-credentials@v4
+#       with:
+#         role-to-assume: arn:aws:iam::<account>:role/seatlock-deploy
+#         aws-region: ap-south-1
+#
+#     - name: Build and push the API image
+#       run: |
+#         docker build -t "$ECR/seatlock-api:${{ github.sha }}" ./backend
+#         docker push "$ECR/seatlock-api:${{ github.sha }}"
+#       # Tagged with the commit SHA, never :latest. A mutable tag makes
+#       # "which build is running in production?" unanswerable, and makes a
+#       # rollback a rebuild rather than a re-point.
+#
+#     - name: Roll out
+#       run: aws ecs update-service --cluster seatlock --service api --force-new-deployment
+#       # Flyway runs on startup, so the migration ships with the code. That
+#       # only works because every migration in this project is backwards
+#       # compatible with the previous release - during a rolling deploy, old
+#       # and new instances share one database for a few minutes.
+# =============================================================================

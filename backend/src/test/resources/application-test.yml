@@ -1,0 +1,58 @@
+# =============================================================================
+# Test profile.
+#
+# Datasource and Redis coordinates are NOT here - they are injected at runtime by
+# @DynamicPropertySource in IntegrationTestBase, because Testcontainers only
+# knows the ports after the containers have started.
+#
+# Note the Flyway locations: db/migration ONLY. The demo data in db/demo is
+# deliberately excluded so that tests start from an empty database and create
+# exactly the fixtures they need. A test that passes because of seed data it did
+# not create is a test that will break the day somebody edits the seed data.
+# =============================================================================
+
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        format_sql: false
+  flyway:
+    locations: classpath:db/migration
+    clean-disabled: false
+
+seatlock:
+  security:
+    jwt:
+      # Test-only key. 32 bytes of base64, valid but worthless.
+      secret: dGVzdC1vbmx5LWtleS0zMi1ieXRlcy1sb25nLXh4eHh4eHg=
+      issuer: seatlock-test
+      access-token-ttl: 15m
+      refresh-token-ttl: 1d
+    cors:
+      allowed-origins: http://localhost:5173
+    rate-limit:
+      # Deliberately high so that ordinary tests are not throttled. The test that
+      # actually exercises rate limiting overrides these with @TestPropertySource,
+      # which keeps the limit under test local to the test that cares about it.
+      auth-requests-per-minute: 10000
+      hold-requests-per-minute: 10000
+
+  hold:
+    ttl: 8m
+    extension: 3m
+    max-seats-per-booking: 10
+
+  reaper:
+    # Effectively never, so the background job cannot interfere with a test's
+    # timing. Tests that want the reaper invoke it directly.
+    fixed-delay: 3600s
+    cleanup-cron: "0 0 4 * * *"
+
+logging:
+  level:
+    root: WARN
+    com.seatlock: INFO
+    org.testcontainers: WARN
+    com.github.dockerjava: WARN

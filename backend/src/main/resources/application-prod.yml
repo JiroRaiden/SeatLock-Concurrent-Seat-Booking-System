@@ -1,0 +1,45 @@
+# =============================================================================
+# prod profile - deliberately almost empty.
+#
+# Everything here comes from the environment (ECS task definition / EC2 systemd
+# unit / AWS Secrets Manager). The point of this file is to TIGHTEN defaults,
+# not to supply values.
+# =============================================================================
+
+spring:
+  jpa:
+    properties:
+      hibernate:
+        format_sql: false
+  data:
+    redis:
+      # In production the password is mandatory. The base file allows an empty
+      # default for local Redis; here we override with a no-fallback reference
+      # so a passwordless production Redis cannot boot.
+      password: ${REDIS_PASSWORD}
+
+server:
+  # Do not advertise the server implementation in response headers.
+  tomcat:
+    max-swallow-size: 2MB
+  # Graceful shutdown: finish in-flight bookings before the process exits,
+  # otherwise a deploy can kill a request between "seat held" and "booking written".
+  shutdown: graceful
+
+spring.lifecycle:
+  timeout-per-shutdown-phase: 25s
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  endpoint:
+    health:
+      show-details: never
+
+logging:
+  level:
+    root: WARN
+    com.seatlock: INFO
+    org.hibernate.SQL: WARN
