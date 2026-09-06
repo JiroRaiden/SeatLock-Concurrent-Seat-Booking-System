@@ -251,6 +251,3 @@ product. What it is not, stated plainly:
   `isTerminal()` includes `CONFIRMED`. Cancelling a `PENDING` booking works.
   Recorded in `docs/04-booking-lifecycle.md` rather than papered over.
 
-The list is longer than most READMEs carry, on purpose. Knowing which
-limitations you chose, and why, is the difference between a system you built and
-a system you assembled.
